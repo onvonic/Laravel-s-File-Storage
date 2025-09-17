@@ -117,7 +117,30 @@ if ($save_mode === 'local') {
 - ❌ Perlu route khusus untuk mengakses file
 - Path: `storage/app/files/company/`
 
-### 3. Default Image Handler
+### 3. Google Drive Storage (Cloud Storage)
+```php
+$save_mode = 'google';
+
+if ($save_mode === 'google') {
+    // Upload ke Google Drive
+    $files_input_path = $files_input->storeAs('files/company', $files_input_name, 'google');
+    $files_input_url = 'https://drive.google.com/file/d/' . $files_input_path . '/view';
+    
+    // Atau jika menggunakan package khusus Google Drive
+    // $googleDrive = new GoogleDriveService();
+    // $files_input_url = $googleDrive->upload($files_input, 'company-logos');
+}
+```
+
+**Karakteristik:**
+- ✅ Penyimpanan cloud eksternal (tidak menggunakan server space)
+- ✅ Backup otomatis dan reliable
+- ✅ Bisa diakses dari mana saja
+- ❌ Perlu setup API Google Drive
+- ❌ Bergantung pada koneksi internet
+- ❌ Lebih kompleks untuk setup awal
+
+### 4. Default Image Handler
 ```php
 if (!$request->hasFile('file_logo')) {
     $files_input_url = asset('assets/image/no_image_available.jpg');
@@ -178,7 +201,7 @@ public function insert(Request $request)
             $files_input_name = 'post' . now()->format('YmdHis') . '_' . bin2hex(random_bytes(8)) . '.' . $files_input->getClientOriginalExtension();
             
             // Choose storage mode
-            $save_mode = 'local'; // or 'public'
+            $save_mode = 'local'; // 'public', 'local', or 'google'
             
             if ($save_mode === 'public') {
                 // Public storage
@@ -187,6 +210,11 @@ public function insert(Request $request)
                 }
                 $files_input_path = $files_input->storeAs('files/company', $files_input_name, 'public');
                 $files_input_url = asset('storage/' . $files_input_path);
+            } elseif ($save_mode === 'google') {
+                // Google Drive storage
+                $files_input_path = Storage::disk('google')->putFileAs('company-logos', $files_input, $files_input_name);
+                $fileId = basename($files_input_path);
+                $files_input_url = "https://drive.google.com/file/d/{$fileId}/view";
             } else {
                 // Private storage
                 if (!Storage::disk('local')->exists('files/company')) {
@@ -238,6 +266,60 @@ public function insert(Request $request)
 'avatar' => 'required|image|max:1024',
 ```
 
+## Google Drive Setup
+
+### 1. Install Package
+```bash
+composer require nao-pon/flysystem-google-drive
+```
+
+### 2. Google Drive Service Account
+1. Buat project di [Google Cloud Console](https://console.cloud.google.com)
+2. Enable Google Drive API
+3. Buat Service Account dan download JSON key
+4. Share folder Google Drive dengan email service account
+
+### 3. Configuration di `config/filesystems.php`
+```php
+'disks' => [
+    'google' => [
+        'driver' => 'google',
+        'clientId' => env('GOOGLE_DRIVE_CLIENT_ID'),
+        'clientSecret' => env('GOOGLE_DRIVE_CLIENT_SECRET'),
+        'refreshToken' => env('GOOGLE_DRIVE_REFRESH_TOKEN'),
+        'folderId' => env('GOOGLE_DRIVE_FOLDER_ID'),
+    ],
+],
+```
+
+### 4. Environment Variables (.env)
+```env
+GOOGLE_DRIVE_CLIENT_ID=your_client_id
+GOOGLE_DRIVE_CLIENT_SECRET=your_client_secret
+GOOGLE_DRIVE_REFRESH_TOKEN=your_refresh_token
+GOOGLE_DRIVE_FOLDER_ID=your_folder_id
+```
+
+### 5. Google Drive Implementation
+```php
+public function uploadToGoogleDrive(Request $request)
+{
+    if ($request->hasFile('file_logo')) {
+        $file = $request->file('file_logo');
+        $fileName = 'post' . now()->format('YmdHis') . '_' . bin2hex(random_bytes(8)) . '.' . $file->getClientOriginalExtension();
+        
+        // Upload ke Google Drive
+        $path = Storage::disk('google')->putFileAs('company-logos', $file, $fileName);
+        
+        // Get shareable link
+        $fileId = basename($path);
+        $files_input_url = "https://drive.google.com/file/d/{$fileId}/view";
+        
+        return $files_input_url;
+    }
+}
+```
+
 ## Storage Configuration
 
 Pastikan konfigurasi storage di `config/filesystems.php`:
@@ -254,6 +336,14 @@ Pastikan konfigurasi storage di `config/filesystems.php`:
         'root' => storage_path('app/public'),
         'url' => env('APP_URL').'/storage',
         'visibility' => 'public',
+    ],
+    
+    'google' => [
+        'driver' => 'google',
+        'clientId' => env('GOOGLE_DRIVE_CLIENT_ID'),
+        'clientSecret' => env('GOOGLE_DRIVE_CLIENT_SECRET'),
+        'refreshToken' => env('GOOGLE_DRIVE_REFRESH_TOKEN'),
+        'folderId' => env('GOOGLE_DRIVE_FOLDER_ID'),
     ],
 ],
 ```
